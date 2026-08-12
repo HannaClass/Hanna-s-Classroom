@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f4f6f9;
+  color: #1c2e4a;
+}
+
+a {
+  color: inherit;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-md bg-navy text-white font-medium hover:opacity-90 transition;
+}
+
+.btn-secondary {
+  @apply px-4 py-2 rounded-md border border-navy text-navy font-medium hover:bg-navy hover:text-white transition;
+}
+
+.card {
+  @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4;
+}
+
+input, textarea {
+  @apply border border-gray-300 rounded-md px-3 py-2 w-full;
+}
