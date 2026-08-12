@@ -17,39 +17,42 @@ const Tldraw = dynamic(() => import("tldraw").then((m) => m.Tldraw), { ssr: fals
 // — where you're mostly taking turns writing rather than drawing at the
 // exact same instant — a ~1-2 second catch-up is unnoticeable in practice.
 export default function Whiteboard({ studentId }) {
-  const editorRef = useRef(null);
   const saveTimeout = useRef(null);
   const applyingRemote = useRef(false);
   const lastSavedAt = useRef(0);
 
+  // IMPORTANT: this must stay a plain (non-async) function. Tldraw calls
+  // onMount synchronously and uses whatever it returns as the cleanup
+  // function on unmount. An async function's return value is a Promise,
+  // and Promises aren't callable — that mismatch is what caused the
+  // "e is not a function" crash when switching tabs.
   const handleMount = useCallback(
-    async (editor) => {
-      editorRef.current = editor;
-
-      const { data } = await supabase
+    (editor) => {
+      // Load any previously saved board, without blocking mount.
+      supabase
         .from("classroom_boards")
         .select("board_data, updated_at")
         .eq("student_id", studentId)
-        .single();
-
-      if (data?.board_data) {
-        applyingRemote.current = true;
-        try {
-          editor.store.loadSnapshot(data.board_data);
-        } catch (e) {
-          console.error("Could not load saved board", e);
-        }
-        applyingRemote.current = false;
-        lastSavedAt.current = data.updated_at ? new Date(data.updated_at).getTime() : 0;
-      }
+        .single()
+        .then(({ data }) => {
+          if (!data?.board_data) return;
+          applyingRemote.current = true;
+          try {
+            editor.loadSnapshot(data.board_data);
+          } catch (e) {
+            console.error("Could not load saved board", e);
+          }
+          applyingRemote.current = false;
+          lastSavedAt.current = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+        });
 
       // Save this side's own changes
-      editor.store.listen(
+      const unsubscribe = editor.store.listen(
         () => {
           if (applyingRemote.current) return;
           clearTimeout(saveTimeout.current);
           saveTimeout.current = setTimeout(async () => {
-            const snapshot = editor.store.getSnapshot();
+            const snapshot = editor.getSnapshot();
             const now = new Date().toISOString();
             lastSavedAt.current = Date.now();
             await supabase.from("classroom_boards").upsert({
@@ -79,7 +82,7 @@ export default function Whiteboard({ studentId }) {
             if (updatedAt - lastSavedAt.current < 1000) return;
             applyingRemote.current = true;
             try {
-              editor.store.loadSnapshot(payload.new.board_data);
+              editor.loadSnapshot(payload.new.board_data);
             } catch (e) {
               console.error("Could not apply incoming board update", e);
             }
@@ -88,7 +91,12 @@ export default function Whiteboard({ studentId }) {
         )
         .subscribe();
 
-      editor.disposables?.push?.(() => supabase.removeChannel(channel));
+      // Tldraw calls this when the component unmounts (e.g. switching tabs)
+      return () => {
+        unsubscribe();
+        supabase.removeChannel(channel);
+        clearTimeout(saveTimeout.current);
+      };
     },
     [studentId]
   );
